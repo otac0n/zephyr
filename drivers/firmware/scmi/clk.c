@@ -41,7 +41,7 @@ int scmi_clock_rate_get(struct scmi_protocol *proto,
 	struct scmi_clock_rate_set_reply reply_buffer;
 	bool use_polling;
 
-	/* sanity checks */
+	/* input validation */
 	if (!proto || !rate) {
 		return -EINVAL;
 	}
@@ -81,7 +81,7 @@ int scmi_clock_rate_set(struct scmi_protocol *proto, struct scmi_clock_rate_conf
 	int status, ret;
 	bool use_polling;
 
-	/* sanity checks */
+	/* input validation */
 	if (!proto || !cfg) {
 		return -EINVAL;
 	}
@@ -110,11 +110,7 @@ int scmi_clock_rate_set(struct scmi_protocol *proto, struct scmi_clock_rate_conf
 		return ret;
 	}
 
-	if (status != SCMI_SUCCESS) {
-		return scmi_status_to_errno(status);
-	}
-
-	return 0;
+	return scmi_status_to_errno(status);
 }
 
 int scmi_clock_parent_get(struct scmi_protocol *proto, uint32_t clk_id, uint32_t *parent_id)
@@ -124,7 +120,7 @@ int scmi_clock_parent_get(struct scmi_protocol *proto, uint32_t clk_id, uint32_t
 	struct scmi_clock_parent_get_reply reply_buffer;
 	bool use_polling;
 
-	/* sanity checks */
+	/* input validation */
 	if (!proto || !parent_id) {
 		return -EINVAL;
 	}
@@ -165,7 +161,7 @@ int scmi_clock_parent_set(struct scmi_protocol *proto, uint32_t clk_id, uint32_t
 	int status, ret;
 	bool use_polling;
 
-	/* sanity checks */
+	/* input validation */
 	if (!proto) {
 		return -EINVAL;
 	}
@@ -190,11 +186,7 @@ int scmi_clock_parent_set(struct scmi_protocol *proto, uint32_t clk_id, uint32_t
 		return ret;
 	}
 
-	if (status != SCMI_SUCCESS) {
-		return scmi_status_to_errno(status);
-	}
-
-	return 0;
+	return scmi_status_to_errno(status);
 }
 
 int scmi_clock_config_set(struct scmi_protocol *proto,
@@ -204,7 +196,7 @@ int scmi_clock_config_set(struct scmi_protocol *proto,
 	int status, ret;
 	bool use_polling;
 
-	/* sanity checks */
+	/* input validation */
 	if (!proto || !cfg) {
 		return -EINVAL;
 	}
@@ -244,11 +236,7 @@ int scmi_clock_config_set(struct scmi_protocol *proto,
 		return ret;
 	}
 
-	if (status != SCMI_SUCCESS) {
-		return scmi_status_to_errno(status);
-	}
-
-	return 0;
+	return scmi_status_to_errno(status);
 }
 
 int scmi_clock_protocol_attributes(struct scmi_protocol *proto, uint32_t *attributes)
@@ -258,7 +246,7 @@ int scmi_clock_protocol_attributes(struct scmi_protocol *proto, uint32_t *attrib
 	int ret;
 	bool use_polling;
 
-	/* sanity checks */
+	/* input validation */
 	if (!proto || !attributes) {
 		return -EINVAL;
 	}

@@ -13,43 +13,18 @@
 #include <zephyr/device.h>
 #include <zephyr/init.h>
 #include <zephyr/irq.h>
+#include <zephyr/cache.h>
 
 #include <clic.h>
 #include <bflb_soc.h>
 #include <glb_reg.h>
 #include <hbn_reg.h>
-#include <pds_reg.h>
-
-/* Set Embedded Flash Pullup */
-static void system_bor_init(void)
-{
-	uint32_t tmp;
-
-	tmp = sys_read32(HBN_BASE + HBN_MISC_OFFSET);
-	/* borThreshold = 1 */
-	tmp = (tmp & HBN_BOR_VTH_UMSK) | ((uint32_t)(1) << HBN_BOR_VTH_POS);
-	/* enablePorInBor true*/
-	tmp = (tmp & HBN_BOR_SEL_UMSK) | ((uint32_t)(1) << HBN_BOR_SEL_POS);
-	/* enableBor true*/
-	tmp = (tmp & HBN_PU_BOR_UMSK) | ((uint32_t)(1) << HBN_PU_BOR_POS);
-	sys_write32(tmp, HBN_BASE + HBN_MISC_OFFSET);
-
-
-	/* enableBorInt false */
-	tmp = sys_read32(HBN_BASE + HBN_IRQ_MODE_OFFSET);
-	tmp = tmp & HBN_IRQ_BOR_EN_UMSK;
-	sys_write32(tmp, HBN_BASE + HBN_IRQ_MODE_OFFSET);
-}
 
 void soc_early_init_hook(void)
 {
-	uint32_t key;
 	uint32_t *p;
 	uint32_t i = 0;
 	uint32_t tmp;
-
-	key = irq_lock();
-
 
 	/* disable hardware_pullup_pull_down (reg_en_hw_pu_pd = 0) */
 	tmp = sys_read32(HBN_BASE + HBN_IRQ_MODE_OFFSET);
@@ -80,8 +55,5 @@ void soc_early_init_hook(void)
 		p[i] = 0;
 	}
 
-	/* init bor for all platform */
-	system_bor_init();
-
-	irq_unlock(key);
+	sys_cache_data_flush_and_invd_all();
 }

@@ -6,15 +6,16 @@
 
 /**
  * @file
- * @brief Charger APIs
+ * @ingroup charger_interface
+ * @brief Main header file for battery charger driver API.
  */
 
 #ifndef ZEPHYR_INCLUDE_DRIVERS_CHARGER_H_
 #define ZEPHYR_INCLUDE_DRIVERS_CHARGER_H_
 
 /**
- * @brief Charger Interface
- * @defgroup charger_interface Charger Interface
+ * @brief Interfaces for battery chargers.
+ * @defgroup charger_interface Battery Charger
  * @ingroup io_interfaces
  * @{
  */
@@ -375,7 +376,7 @@ __subsystem struct charger_driver_api {
  * @param val Pointer to charger_propval union
  *
  * @retval 0 if successful
- * @retval < 0 if getting property failed
+ * @retval <0 if getting property failed
  */
 __syscall int charger_get_prop(const struct device *dev, const charger_prop_t prop,
 			       union charger_propval *val);
@@ -396,7 +397,7 @@ static inline int z_impl_charger_get_prop(const struct device *dev, const charge
  * @param val Pointer to charger_propval union
  *
  * @retval 0 if successful
- * @retval < 0 if setting property failed
+ * @retval <0 if setting property failed
  */
 __syscall int charger_set_prop(const struct device *dev, const charger_prop_t prop,
 			       const union charger_propval *val);

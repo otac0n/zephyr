@@ -43,6 +43,10 @@ LOG_MODULE_REGISTER(net_openthread_platform, CONFIG_OPENTHREAD_PLATFORM_LOG_LEVE
 #include <openthread/nat64.h>
 #endif /* CONFIG_OPENTHREAD_NAT64_TRANSLATOR */
 
+#if defined(CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER)
+#include "openthread_border_router.h"
+#endif /* CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER */
+
 #define OT_STACK_SIZE (CONFIG_OPENTHREAD_THREAD_STACK_SIZE)
 
 #if defined(CONFIG_OPENTHREAD_THREAD_PREEMPTIVE)
@@ -164,6 +168,22 @@ static void ot_joiner_start_handler(otError error, void *context)
 			LOG_ERR("Failed to start the OpenThread network [%d]", error);
 		}
 	}
+}
+
+static void ot_configure_instance(void)
+{
+#ifndef CONFIG_OPENTHREAD_COPROCESSOR_RCP
+	/* Configure Child Supervision and MLE Child timeouts. */
+	otChildSupervisionSetInterval(openthread_instance,
+				      CONFIG_OPENTHREAD_CHILD_SUPERVISION_INTERVAL);
+	otChildSupervisionSetCheckTimeout(openthread_instance,
+					  CONFIG_OPENTHREAD_CHILD_SUPERVISION_CHECK_TIMEOUT);
+	otThreadSetChildTimeout(openthread_instance, CONFIG_OPENTHREAD_MLE_CHILD_TIMEOUT);
+
+	if (IS_ENABLED(CONFIG_OPENTHREAD_ROUTER_SELECTION_JITTER_OVERRIDE)) {
+		otThreadSetRouterSelectionJitter(openthread_instance, OT_ROUTER_SELECTION_JITTER);
+	}
+#endif
 }
 
 static bool ot_setup_default_configuration(void)
@@ -331,7 +351,7 @@ int openthread_init(void)
 	} else {
 		otIp6SetReceiveFilterEnabled(openthread_instance, true);
 
-#if defined(CONFIG_OPENTHREAD_NAT64_TRANSLATOR)
+#if defined(CONFIG_OPENTHREAD_NAT64_TRANSLATOR) && !defined(CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER)
 
 		otIp4Cidr nat64_cidr;
 
@@ -345,7 +365,7 @@ int openthread_init(void)
 			LOG_ERR("Failed to parse NAT64 CIDR");
 			return -EIO;
 		}
-#endif /* CONFIG_OPENTHREAD_NAT64_TRANSLATOR */
+#endif /* CONFIG_OPENTHREAD_NAT64_TRANSLATOR && !CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER */
 
 		error = otSetStateChangedCallback(openthread_instance, &ot_state_changed_handler,
 						  NULL);
@@ -355,10 +375,7 @@ int openthread_init(void)
 		}
 	}
 
-	if (IS_ENABLED(CONFIG_OPENTHREAD_ROUTER_SELECTION_JITTER_OVERRIDE)) {
-		otThreadSetRouterSelectionJitter(openthread_instance, OT_ROUTER_SELECTION_JITTER);
-	}
-
+	ot_configure_instance();
 	openthread_mutex_unlock();
 
 	(void)k_work_submit_to_queue(&openthread_work_q, &openthread_work);
@@ -405,13 +422,6 @@ int openthread_run(void)
 			goto exit;
 		}
 	}
-
-	/* Configure Child Supervision and MLE Child timeouts. */
-	otChildSupervisionSetInterval(openthread_instance,
-				      CONFIG_OPENTHREAD_CHILD_SUPERVISION_INTERVAL);
-	otChildSupervisionSetCheckTimeout(openthread_instance,
-					  CONFIG_OPENTHREAD_CHILD_SUPERVISION_CHECK_TIMEOUT);
-	otThreadSetChildTimeout(openthread_instance, CONFIG_OPENTHREAD_MLE_CHILD_TIMEOUT);
 
 	if (otDatasetIsCommissioned(openthread_instance)) {
 		/* OpenThread already has dataset stored - skip the
@@ -484,13 +494,25 @@ void openthread_set_receive_cb(openthread_receive_cb cb, void *context)
 		openthread_mutex_lock();
 		otIp6SetReceiveCallback(openthread_instance, cb, context);
 
-#if defined(CONFIG_OPENTHREAD_NAT64_TRANSLATOR)
+		openthread_mutex_unlock();
+	}
+}
+
+#if defined(CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER_NAT64_TRANSLATOR)
+void openthread_set_nat64_receive_cb(openthread_receive_cb cb, void *context)
+{
+	__ASSERT(cb != NULL, "NAT64 receive callback is not set");
+	__ASSERT(openthread_instance != NULL, "OpenThread instance is not initialized");
+
+	if (!IS_ENABLED(CONFIG_OPENTHREAD_COPROCESSOR)) {
+		openthread_mutex_lock();
+
 		otNat64SetReceiveIp4Callback(openthread_instance, cb, context);
-#endif /* CONFIG_OPENTHREAD_NAT64_TRANSLATOR */
 
 		openthread_mutex_unlock();
 	}
 }
+#endif /* CONFIG_OPENTHREAD_NAT64_TRANSLATOR && CONFIG_NET_IPV4 */
 
 void openthread_mutex_lock(void)
 {
@@ -506,6 +528,17 @@ void openthread_mutex_unlock(void)
 {
 	(void)k_mutex_unlock(&openthread_lock);
 }
+
+#if defined(CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER)
+void openthread_notify_border_router_work(void)
+{
+	int error = k_work_submit_to_queue(&openthread_work_q, &openthread_border_router_work);
+
+	if (error < 0) {
+		LOG_ERR("Failed to submit work to queue, error: %d", error);
+	}
+}
+#endif /* CONFIG_OPENTHREAD_ZEPHYR_BORDER_ROUTER */
 
 #ifdef CONFIG_OPENTHREAD_SYS_INIT
 static int openthread_sys_init(void)

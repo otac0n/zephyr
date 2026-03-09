@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import csv
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,21 +16,27 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class DeviceSerialConfig:
+    port: str
+    baud: int = 115200
+    serial_pty: str = ''
+
+
+@dataclass
 class DeviceConfig:
     type: str
     build_dir: Path
     base_timeout: float = 60.0  # [s]
     flash_timeout: float = 60.0  # [s]
     platform: str = ''
-    serial: str = ''
-    baud: int = 115200
+    serial_configs: list[DeviceSerialConfig] = field(default_factory=list)
     runner: str = ''
     runner_params: list[str] = field(default_factory=list, repr=False)
     id: str = ''
     product: str = ''
-    serial_pty: str = ''
     flash_before: bool = False
     west_flash_extra_args: list[str] = field(default_factory=list, repr=False)
+    flash_command: str = ''
     name: str = ''
     pre_script: Path | None = None
     post_script: Path | None = None
@@ -37,6 +44,7 @@ class DeviceConfig:
     fixtures: list[str] = None
     app_build_dir: Path | None = None
     extra_test_args: str = ''
+    west_flash_cmd: str = 'flash'
 
     def __post_init__(self):
         domains = self.build_dir / 'domains.yaml'
@@ -59,30 +67,43 @@ class TwisterHarnessConfig:
 
         west_flash_extra_args: list[str] = []
         if config.option.west_flash_extra_args:
-            west_flash_extra_args = [w.strip() for w in config.option.west_flash_extra_args.split(',')]
+            west_flash_extra_args = [w.strip() for w in next(csv.reader([config.option.west_flash_extra_args]))]
+        flash_command: list[str] = []
+        if config.option.flash_command:
+            flash_command = [w.strip() for w in next(csv.reader([config.option.flash_command]))]
         runner_params: list[str] = []
         if config.option.runner_params:
             runner_params = [w.strip() for w in config.option.runner_params]
+        serial_configs: list[DeviceSerialConfig] = []
+        if config.option.device_serial:
+            for serial_port in config.option.device_serial:
+                serial_configs.append(
+                    DeviceSerialConfig(
+                        port=serial_port,
+                        baud=config.option.device_serial_baud,
+                        serial_pty=config.option.device_serial_pty
+                    )
+                )
         device_from_cli = DeviceConfig(
             type=config.option.device_type,
             build_dir=_cast_to_path(config.option.build_dir),
             base_timeout=config.option.base_timeout,
             flash_timeout=config.option.flash_timeout,
             platform=config.option.platform,
-            serial=config.option.device_serial,
-            baud=config.option.device_serial_baud,
+            serial_configs=serial_configs,
             runner=config.option.runner,
             runner_params=runner_params,
             id=config.option.device_id,
             product=config.option.device_product,
-            serial_pty=config.option.device_serial_pty,
             flash_before=bool(config.option.flash_before),
             west_flash_extra_args=west_flash_extra_args,
+            flash_command=flash_command,
             pre_script=_cast_to_path(config.option.pre_script),
             post_script=_cast_to_path(config.option.post_script),
             post_flash_script=_cast_to_path(config.option.post_flash_script),
             fixtures=config.option.fixtures,
-            extra_test_args=config.option.extra_test_args
+            extra_test_args=config.option.extra_test_args,
+            west_flash_cmd=config.option.west_flash_cmd or 'flash'
         )
 
         devices.append(device_from_cli)

@@ -30,14 +30,6 @@ enum corner {
 typedef void (*fill_buffer)(enum corner corner, uint8_t grey, uint8_t *buf,
 			    size_t buf_size);
 
-
-#ifdef CONFIG_ARCH_POSIX
-static void posix_exit_main(int exit_code)
-{
-	posix_exit(exit_code);
-}
-#endif
-
 static void fill_buffer_argb8888(enum corner corner, uint8_t grey, uint8_t *buf,
 				 size_t buf_size)
 {
@@ -114,8 +106,8 @@ static uint16_t get_rgb565_color(enum corner corner, uint8_t grey)
 	return color;
 }
 
-static void fill_buffer_bgr565(enum corner corner, uint8_t grey, uint8_t *buf,
-			       size_t buf_size)
+static void fill_buffer_rgb565x(enum corner corner, uint8_t grey, uint8_t *buf,
+				size_t buf_size)
 {
 	uint16_t color = get_rgb565_color(corner, grey);
 
@@ -223,7 +215,7 @@ int test_display(void)
 		LOG_ERR("Device %s not found. Aborting test.",
 			display_dev->name);
 #ifdef CONFIG_ARCH_POSIX
-		posix_exit_main(1);
+		posix_exit(1);
 #else
 		return 0;
 #endif
@@ -287,9 +279,9 @@ int test_display(void)
 		fill_buffer_fnc = fill_buffer_rgb565;
 		buf_size *= 2;
 		break;
-	case PIXEL_FORMAT_BGR_565:
+	case PIXEL_FORMAT_RGB_565X:
 		bg_color = 0xFFu;
-		fill_buffer_fnc = fill_buffer_bgr565;
+		fill_buffer_fnc = fill_buffer_rgb565x;
 		buf_size *= 2;
 		break;
 	case PIXEL_FORMAT_L_8:
@@ -316,7 +308,7 @@ int test_display(void)
 	default:
 		LOG_ERR("Unsupported pixel format. Aborting test.");
 #ifdef CONFIG_ARCH_POSIX
-		posix_exit_main(1);
+		posix_exit(1);
 #else
 		return 0;
 #endif
@@ -327,7 +319,7 @@ int test_display(void)
 	if (buf == NULL) {
 		LOG_ERR("Could not allocate memory. Aborting test.");
 #ifdef CONFIG_ARCH_POSIX
-		posix_exit_main(1);
+		posix_exit(1);
 #else
 		return 0;
 #endif
@@ -400,7 +392,7 @@ int test_display(void)
 	}
 
 #ifdef CONFIG_ARCH_POSIX
-	posix_exit_main(0);
+	posix_exit(0);
 #endif
 	return 0;
 }

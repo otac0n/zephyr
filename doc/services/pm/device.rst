@@ -234,7 +234,7 @@ for brevity, in real drivers they must be handled.
 
    struct dummy_driver_config {
            const struct device *bus;
-           const struct gpio_dt_spec int_pin;
+           const struct gpio_dt_spec int_gpio;
            const struct gpio_dt_spec enable_pin;
    };
 
@@ -253,7 +253,7 @@ for brevity, in real drivers they must be handled.
    static int dummy_driver_pm_suspend(const struct device *dev)
    {
            struct dummy_driver_data *dev_data = dev->data;
-           const struct dummy_driver_config *dev_config = dev->config;
+           const struct dummy_driver_config *config = dev->config;
 
            /* Request devices needed by device */
            (void)pm_device_runtime_get(config->enable_pin.port);
@@ -265,7 +265,7 @@ for brevity, in real drivers they must be handled.
            /* Disable the device. In this case, we use the enable pin */
            (void)gpio_pin_set_dt(&config->enable_pin, 0);
 
-           /* Release devices currenty not needed by device */
+           /* Release devices currently not needed by device */
            (void)pm_device_runtime_put(config->enable_pin.port);
            (void)pm_device_runtime_put(config->int_pin.port);
 
@@ -282,7 +282,7 @@ for brevity, in real drivers they must be handled.
    static int dummy_driver_pm_resume(const struct device *dev)
    {
            struct dummy_driver_data *dev_data = dev->data;
-           const struct dummy_driver_config *dev_config = dev->config;
+           const struct dummy_driver_config *config = dev->config;
 
            /* Request devices needed by device */
            (void)pm_device_runtime_get(config->enable_pin.port);
@@ -304,14 +304,14 @@ for brevity, in real drivers they must be handled.
            (void)gpio_pin_interrupt_configure_dt(&config->int_gpio, GPIO_INT_EDGE_TO_ACTIVE);
 
            /*
-            * Release devices currenty not needed by device. In this case, we
+            * Release devices currently not needed by device. In this case, we
             * are releasing the bus and the enable pin.
             *
             * The device driver would keep the bus ACTIVE while the device is
             * ACTIVE in cases of high throughput or unsolicitet data on the
             * bus, to avoid inefficient RESUME/SUSPEND cycles of the bus
-            * for every transaction, and allowing reception of unsolicitet
-            * data on busses like UART.
+            * for every transaction, and allowing reception of unsolicited
+            * data on buses like UART.
             */
            (void)pm_device_runtime_put(config->bus);
            (void)pm_device_runtime_put(config->enable_pin.port);
@@ -326,7 +326,7 @@ for brevity, in real drivers they must be handled.
 
    static int dummy_driver_pm_turn_off(const struct device *dev)
    {
-           const struct dummy_driver_config *dev_config = dev->config;
+           const struct dummy_driver_config *config = dev->config;
 
            /* Request devices needed for configuring device */
            (void)pm_device_runtime_get(config->enable_pin.port);
@@ -356,7 +356,7 @@ for brevity, in real drivers they must be handled.
 
    static int dummy_driver_pm_turn_on(const struct device *dev)
    {
-           const struct dummy_driver_config *dev_config = dev->config;
+           const struct dummy_driver_config *config = dev->config;
 
            /* Request devices needed for configuring device */
            (void)pm_device_runtime_get(config->enable_pin.port);
@@ -440,6 +440,7 @@ for brevity, in real drivers they must be handled.
           return pm_device_driver_init(dev, dummy_driver_pm_action);
    }
 
+   #ifdef CONFIG_DEVICE_DEINIT_SUPPORT
    static int dummy_deinit(const struct device *dev)
    {
            int ret;
@@ -473,6 +474,7 @@ for brevity, in real drivers they must be handled.
 
            return ret;
    }
+   #endif
 
    static struct dummy_driver_data data0;
 
@@ -501,7 +503,7 @@ for brevity, in real drivers they must be handled.
 Device Model with Partial Device Power Management Support
 *********************************************************
 
-If :kconfig:option:`CONFIG_PM_DEVICE` is not enabled, The device
+If :kconfig:option:`CONFIG_PM_DEVICE` is not enabled, the device
 power state is tied to the devices initialization state.
 
 Once a device is initialized, the device driver PM action hook is
@@ -511,7 +513,7 @@ used to move the device to the ``ACTIVE`` state through calling
 state, this results in a call to ``PM_DEVICE_ACTION_TURN_ON``
 followed by ``PM_DEVICE_ACTION_RESUME``.
 
-Given power domains and busses are "just devices", every power
+Given power domains and buses are "just devices", every power
 domain and bus will be resumed before its child devices as they
 are initialized according to the devicetree dependency ordinals.
 Every device is assumed to be powered, and the devices a device

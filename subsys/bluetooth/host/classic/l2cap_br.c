@@ -2,6 +2,7 @@
 
 /*
  * Copyright (c) 2016 Intel Corporation
+ * Copyright 2024-2025 NXP
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -30,6 +31,7 @@
 #include "a2dp_internal.h"
 #include "avctp_internal.h"
 #include "avrcp_internal.h"
+#include "did_internal.h"
 #include "rfcomm_internal.h"
 #include "sdp_internal.h"
 
@@ -899,6 +901,11 @@ int bt_l2cap_br_send_cb(struct bt_conn *conn, uint16_t cid, struct net_buf *buf,
 		return -ESHUTDOWN;
 	}
 
+	if (ch->conn == NULL) {
+		LOG_WRN("ACL conn of chan %p is invalid", ch);
+		return -ENOTCONN;
+	}
+
 	br_chan = CONTAINER_OF(ch, struct bt_l2cap_br_chan, chan);
 
 	LOG_DBG("chan %p buf %p len %u", br_chan, buf, buf->len);
@@ -1093,7 +1100,7 @@ static int bt_l2cap_br_pack_s_frame_header(struct bt_l2cap_br_chan *br_chan, str
 }
 
 static void bt_l2cap_br_pack_i_frame_header(struct bt_l2cap_br_chan *br_chan, struct net_buf *buf,
-					    uint8_t pdu_len, uint8_t sar, uint8_t tx_seq)
+					    uint16_t pdu_len, uint8_t sar, uint8_t tx_seq)
 {
 	struct bt_l2cap_hdr *hdr;
 	uint16_t std_control;
@@ -1559,11 +1566,12 @@ done:
 
 	struct net_buf *buf;
 
-	buf = br_chan->_pdu_buf;
+	buf = net_buf_ref(br_chan->_pdu_buf);
 
 	if (br_chan->_pdu_remaining > amount) {
 		br_chan->_pdu_remaining -= amount;
 	} else {
+		net_buf_unref(br_chan->_pdu_buf);
 		br_chan->_pdu_buf = NULL;
 		br_chan->_pdu_remaining = 0;
 		if (pdu && !pdu->len) {
@@ -2608,6 +2616,9 @@ destroy:
 	/* Reset internal members of common channel */
 	bt_l2cap_br_chan_set_state(chan, BT_L2CAP_DISCONNECTED);
 	BR_CHAN(chan)->psm = 0U;
+	if (L2CAP_BR_CID_IS_DYN(BR_CHAN(chan)->rx.cid)) {
+		BR_CHAN(chan)->rx.cid = 0U;
+	}
 #endif
 	if (chan->destroy) {
 		chan->destroy(chan);
@@ -2683,6 +2694,7 @@ static void l2cap_br_conn_req(struct bt_l2cap_br *l2cap, uint8_t ident,
 
 	br_chan = BR_CHAN(chan);
 	br_chan->required_sec_level = server->sec_level;
+	br_chan->psm = psm;
 
 	l2cap_br_chan_add(conn, chan, l2cap_br_chan_destroy);
 	BR_CHAN(chan)->tx.cid = scid;
@@ -2800,8 +2812,20 @@ static uint16_t l2cap_br_conf_rsp_opt_flush_timeout(struct bt_l2cap_chan *chan, 
 
 	LOG_DBG("Flash timeout %u", opt_to->timeout);
 
-	opt_to->timeout = sys_cpu_to_le32(0xffff);
-	result = BT_L2CAP_CONF_UNACCEPT;
+	opt_to->timeout = sys_le16_to_cpu(opt_to->timeout);
+
+	if (opt_to->timeout == 0) {
+		/* 0 is illegal value */
+		LOG_ERR("Flush timeout cannot be 0");
+		result = BT_L2CAP_CONF_REJECT;
+		goto done;
+	}
+
+	/* For tx, only support the default value (0xFFFF - infinite amount of retransmissions) */
+	if (opt_to->timeout != 0xFFFF) {
+		result = BT_L2CAP_CONF_UNACCEPT;
+	}
+
 done:
 	return result;
 }
@@ -3894,8 +3918,21 @@ static uint16_t l2cap_br_conf_opt_flush_timeout(struct bt_l2cap_chan *chan, stru
 
 	LOG_DBG("Flush timeout %u", opt_to->timeout);
 
-	opt_to->timeout = sys_cpu_to_le16(0xffff);
-	result = BT_L2CAP_CONF_UNACCEPT;
+	opt_to->timeout = sys_le16_to_cpu(opt_to->timeout);
+
+	if (opt_to->timeout == 0) {
+		/* 0 is illegal value */
+		LOG_ERR("Flush timeout cannot be 0");
+		result = BT_L2CAP_CONF_REJECT;
+		goto done;
+	}
+
+	if (opt_to->timeout < CONFIG_BT_L2CAP_RX_FLUSH_TO) {
+		LOG_DBG("Flush timeout %u is too small", opt_to->timeout);
+		opt_to->timeout = sys_cpu_to_le16(CONFIG_BT_L2CAP_RX_FLUSH_TO);
+		result = BT_L2CAP_CONF_UNACCEPT;
+	}
+
 done:
 	return result;
 }
@@ -4089,8 +4126,18 @@ static uint16_t l2cap_br_conf_opt_ret_fc(struct bt_l2cap_chan *chan, struct net_
 		uint16_t mps = CONFIG_BT_L2CAP_MPS;
 
 		if (sys_le16_to_cpu(opt_ret_fc->mps) > br_chan->tx.mtu) {
+			/*
+			 * There is an issue that the mps is bigger than tx mtu sent from the peer
+			 * device. The L2CAP configuration request from the peer device contains
+			 * a mps value that is bigger its tx mtu (sent in the same
+			 * L2CAP_CONFIGURATION_REQ packet or omitted). The issue can occur when
+			 * connecting to an iphone with the enhanced retransmission mode if the
+			 * test profile is MAP or PBAP.
+			 *
+			 * Just adjust it to the tx mtu, and give the suggested value in the
+			 * L2CAP_CONFIGURATION_RSP packet.
+			 */
 			opt_ret_fc->mps = sys_cpu_to_le16(br_chan->tx.mtu);
-			accept = false;
 		}
 
 		if (sys_le16_to_cpu(opt_ret_fc->mps) > mps) {
@@ -5165,6 +5212,11 @@ void l2cap_br_encrypt_change(struct bt_conn *conn, uint8_t hci_status)
 	SYS_SLIST_FOR_EACH_CONTAINER(&conn->channels, chan, node) {
 		l2cap_br_conn_pend(chan, hci_status);
 
+		if (chan->conn == NULL) {
+			LOG_WRN("Invalid ACL conn for chan %p", chan);
+			continue;
+		}
+
 		if (chan->ops && chan->ops->encrypt_change) {
 			chan->ops->encrypt_change(chan, hci_status);
 		}
@@ -6158,8 +6210,6 @@ BT_L2CAP_BR_CHANNEL_DEFINE(br_fixed_chan, BT_L2CAP_CID_BR_SIG, l2cap_br_accept);
 
 void bt_l2cap_br_init(void)
 {
-	sys_slist_init(&br_servers);
-
 	if (IS_ENABLED(CONFIG_BT_RFCOMM)) {
 		bt_rfcomm_init();
 	}
@@ -6180,6 +6230,10 @@ void bt_l2cap_br_init(void)
 
 	if (IS_ENABLED(CONFIG_BT_AVRCP)) {
 		bt_avrcp_init();
+	}
+
+	if (IS_ENABLED(CONFIG_BT_DID)) {
+		bt_did_init();
 	}
 }
 

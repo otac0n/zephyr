@@ -26,12 +26,11 @@ DEFINE_FFF_GLOBALS;
 #define COAP_SEPARATE_TIMEOUT (6000 * 2) /* Needs a safety marging, tests run faster than -rt */
 #define VALID_MESSAGE_ID BIT(31)
 #define TOKEN_OFFSET          4
+#define TEST_PATH "test"
 
-void coap_callback(int16_t code, size_t offset, const uint8_t *payload, size_t len, bool last_block,
-		   void *user_data);
+void coap_callback(const struct coap_client_response_data *data, void *user_data);
 
 static int16_t last_response_code;
-static const char test_path[] = "test";
 
 static uint32_t messages_needing_response[2];
 static uint8_t last_token[2][COAP_TOKEN_MAX_LEN];
@@ -49,7 +48,7 @@ static const char long_payload[] = LOREM_IPSUM_SHORT;
 static struct coap_client_request short_request = {
 	.method = COAP_METHOD_GET,
 	.confirmable = true,
-	.path = test_path,
+	.path = TEST_PATH,
 	.fmt = COAP_CONTENT_FORMAT_TEXT_PLAIN,
 	.cb = coap_callback,
 	.payload = short_payload,
@@ -59,14 +58,16 @@ static struct coap_client_request short_request = {
 static struct coap_client_request long_request = {
 	.method = COAP_METHOD_GET,
 	.confirmable = true,
-	.path = test_path,
+	.path = TEST_PATH,
 	.fmt = COAP_CONTENT_FORMAT_TEXT_PLAIN,
 	.cb = coap_callback,
 	.payload = long_payload,
 	.len = sizeof(long_payload) - 1,
 	.user_data = &sem2,
 };
-static struct sockaddr dst_address;
+static struct net_sockaddr_storage dst_address = {
+	.ss_family = NET_AF_INET,
+};
 
 
 
@@ -119,12 +120,13 @@ static void restore_token(uint8_t *buf)
 }
 
 static ssize_t z_impl_zsock_recvfrom_custom_fake(int sock, void *buf, size_t max_len, int flags,
-						 struct sockaddr *src_addr, socklen_t *addrlen)
+						 struct net_sockaddr *src_addr,
+						 net_socklen_t *addrlen)
 {
 	uint16_t last_message_id = 0;
 
 	LOG_INF("Recvfrom");
-	uint8_t ack_data[] = {0x68, 0x40, 0x00, 0x00, 0x00, 0x00,
+	uint8_t ack_data[] = {0x68, 0x45, 0x00, 0x00, 0x00, 0x00,
 			      0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 	last_message_id = get_next_pending_message_id();
@@ -141,7 +143,8 @@ static ssize_t z_impl_zsock_recvfrom_custom_fake(int sock, void *buf, size_t max
 }
 
 static ssize_t z_impl_zsock_sendto_custom_fake(int sock, void *buf, size_t len, int flags,
-					       const struct sockaddr *dest_addr, socklen_t addrlen)
+					       const struct net_sockaddr *dest_addr,
+					       net_socklen_t addrlen)
 {
 	uint16_t last_message_id = 0;
 	uint8_t type;
@@ -162,8 +165,8 @@ static ssize_t z_impl_zsock_sendto_custom_fake(int sock, void *buf, size_t len, 
 }
 
 static ssize_t z_impl_zsock_sendto_custom_fake_no_reply(int sock, void *buf, size_t len, int flags,
-							const struct sockaddr *dest_addr,
-							socklen_t addrlen)
+							const struct net_sockaddr *dest_addr,
+							net_socklen_t addrlen)
 {
 	uint16_t last_message_id = 0;
 
@@ -178,8 +181,8 @@ static ssize_t z_impl_zsock_sendto_custom_fake_no_reply(int sock, void *buf, siz
 }
 
 static ssize_t z_impl_zsock_sendto_custom_fake_echo(int sock, void *buf, size_t len, int flags,
-						    const struct sockaddr *dest_addr,
-						    socklen_t addrlen)
+						    const struct net_sockaddr *dest_addr,
+						    net_socklen_t addrlen)
 {
 	uint16_t last_message_id = 0;
 	struct coap_packet response = {0};
@@ -211,8 +214,8 @@ static ssize_t z_impl_zsock_sendto_custom_fake_echo(int sock, void *buf, size_t 
 
 static ssize_t z_impl_zsock_sendto_custom_fake_echo_next_req(int sock, void *buf, size_t len,
 							     int flags,
-							     const struct sockaddr *dest_addr,
-							     socklen_t addrlen)
+							     const struct net_sockaddr *dest_addr,
+							     net_socklen_t addrlen)
 {
 	uint16_t last_message_id = 0;
 	struct coap_packet response = {0};
@@ -251,28 +254,28 @@ static ssize_t z_impl_zsock_sendto_custom_fake_echo_next_req(int sock, void *buf
 }
 
 static ssize_t z_impl_zsock_sendto_custom_fake_block(int sock, void *buf, size_t len, int flags,
-						     const struct sockaddr *dest_addr,
-						     socklen_t addrlen)
+						     const struct net_sockaddr *dest_addr,
+						     net_socklen_t addrlen)
 {
 	errno = EAGAIN;
 	return -1;
 }
 
 static ssize_t z_impl_zsock_sendto_custom_fake_err(int sock, void *buf, size_t len, int flags,
-						   const struct sockaddr *dest_addr,
-						   socklen_t addrlen)
+						   const struct net_sockaddr *dest_addr,
+						   net_socklen_t addrlen)
 {
 	errno = ENETDOWN;
 	return -1;
 }
 
 static ssize_t z_impl_zsock_recvfrom_custom_fake_response(int sock, void *buf, size_t max_len,
-							  int flags, struct sockaddr *src_addr,
-							  socklen_t *addrlen)
+							  int flags, struct net_sockaddr *src_addr,
+							  net_socklen_t *addrlen)
 {
 	uint16_t last_message_id = 0;
 
-	static uint8_t ack_data[] = {0x48, 0x40, 0x00, 0x00, 0x00, 0x00,
+	static uint8_t ack_data[] = {0x48, 0x45, 0x00, 0x00, 0x00, 0x00,
 				     0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 	last_message_id = get_next_pending_message_id();
@@ -289,8 +292,8 @@ static ssize_t z_impl_zsock_recvfrom_custom_fake_response(int sock, void *buf, s
 }
 
 static ssize_t z_impl_zsock_recvfrom_custom_fake_empty_ack(int sock, void *buf, size_t max_len,
-							   int flags, struct sockaddr *src_addr,
-							   socklen_t *addrlen)
+							   int flags, struct net_sockaddr *src_addr,
+							   net_socklen_t *addrlen)
 {
 	uint16_t last_message_id = 0;
 
@@ -310,7 +313,8 @@ static ssize_t z_impl_zsock_recvfrom_custom_fake_empty_ack(int sock, void *buf, 
 }
 
 static ssize_t z_impl_zsock_recvfrom_custom_fake_rst(int sock, void *buf, size_t max_len, int flags,
-						     struct sockaddr *src_addr, socklen_t *addrlen)
+						     struct net_sockaddr *src_addr,
+						     net_socklen_t *addrlen)
 {
 	uint16_t last_message_id = 0;
 
@@ -329,8 +333,9 @@ static ssize_t z_impl_zsock_recvfrom_custom_fake_rst(int sock, void *buf, size_t
 }
 
 static ssize_t z_impl_zsock_recvfrom_custom_fake_only_ack(int sock, void *buf, size_t max_len,
-							  int flags, struct sockaddr *src_addr,
-							  socklen_t *addrlen)
+							  int flags,
+							  struct net_sockaddr *src_addr,
+							  net_socklen_t *addrlen)
 {
 	int ret;
 
@@ -341,12 +346,13 @@ static ssize_t z_impl_zsock_recvfrom_custom_fake_only_ack(int sock, void *buf, s
 }
 
 static ssize_t z_impl_zsock_recvfrom_custom_fake_unmatching(int sock, void *buf, size_t max_len,
-							    int flags, struct sockaddr *src_addr,
-							    socklen_t *addrlen)
+							    int flags,
+							    struct net_sockaddr *src_addr,
+							    net_socklen_t *addrlen)
 {
 	uint16_t last_message_id = 0;
 
-	static uint8_t ack_data[] = {0x68, 0x40, 0x00, 0x00, 0x00, 0x00,
+	static uint8_t ack_data[] = {0x68, 0x45, 0x00, 0x00, 0x00, 0x00,
 				     0x00, 0x00, 0x00, 0x00, 0x00, 0x01};
 
 	last_message_id = get_next_pending_message_id();
@@ -362,8 +368,8 @@ static ssize_t z_impl_zsock_recvfrom_custom_fake_unmatching(int sock, void *buf,
 }
 
 static ssize_t z_impl_zsock_recvfrom_custom_fake_echo(int sock, void *buf, size_t max_len,
-						      int flags, struct sockaddr *src_addr,
-						      socklen_t *addrlen)
+						      int flags, struct net_sockaddr *src_addr,
+						      net_socklen_t *addrlen)
 {
 	uint16_t last_message_id = 0;
 
@@ -389,13 +395,14 @@ static ssize_t z_impl_zsock_recvfrom_custom_fake_echo(int sock, void *buf, size_
 }
 
 static ssize_t z_impl_zsock_recvfrom_custom_fake_echo_next_req(int sock, void *buf, size_t max_len,
-							       int flags, struct sockaddr *src_addr,
-							       socklen_t *addrlen)
+							       int flags,
+							       struct net_sockaddr *src_addr,
+							       net_socklen_t *addrlen)
 {
 	uint16_t last_message_id = 0;
 
 	LOG_INF("Recvfrom");
-	uint8_t ack_data[] = {0x68, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	uint8_t ack_data[] = {0x68, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 			      0x00, 0x00, 0x00, 0x00, 0xda, 0xef, 'e',  'c',
 			      'h',  'o',  '_',  'v',  'a',  'l',  'u',  'e'};
 
@@ -417,8 +424,8 @@ static ssize_t z_impl_zsock_recvfrom_custom_fake_echo_next_req(int sock, void *b
 
 static ssize_t z_impl_zsock_recvfrom_custom_fake_duplicate_response(int sock, void *buf,
 								    size_t max_len, int flags,
-								    struct sockaddr *src_addr,
-								    socklen_t *addrlen)
+								    struct net_sockaddr *src_addr,
+								    net_socklen_t *addrlen)
 {
 	uint8_t token[TOKEN_OFFSET + COAP_TOKEN_MAX_LEN];
 
@@ -440,8 +447,8 @@ static ssize_t z_impl_zsock_recvfrom_custom_fake_duplicate_response(int sock, vo
 }
 
 static ssize_t z_impl_zsock_recvfrom_custom_fake_observe(int sock, void *buf, size_t max_len,
-							 int flags, struct sockaddr *src_addr,
-							 socklen_t *addrlen)
+							 int flags, struct net_sockaddr *src_addr,
+							 net_socklen_t *addrlen)
 {
 	int ret = z_impl_zsock_recvfrom_custom_fake_duplicate_response(sock, buf, max_len, flags,
 								       src_addr, addrlen);
@@ -451,11 +458,10 @@ static ssize_t z_impl_zsock_recvfrom_custom_fake_observe(int sock, void *buf, si
 	return ret;
 }
 
-void coap_callback(int16_t code, size_t offset, const uint8_t *payload, size_t len, bool last_block,
-		   void *user_data)
+void coap_callback(const struct coap_client_response_data *data, void *user_data)
 {
-	LOG_INF("CoAP response callback, %d", code);
-	last_response_code = code;
+	LOG_INF("CoAP response callback, %d", data->result_code);
+	last_response_code = data->result_code;
 	if (user_data) {
 		k_sem_give((struct k_sem *) user_data);
 	}
@@ -518,22 +524,24 @@ ZTEST_SUITE(coap_client, NULL, suite_setup, test_setup, test_after, NULL);
 
 ZTEST(coap_client, test_get_request)
 {
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &short_request, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &short_request, NULL));
 
 	k_sleep(K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS));
-	zassert_equal(last_response_code, COAP_RESPONSE_CODE_OK, "Unexpected response");
+	zassert_equal(last_response_code, COAP_RESPONSE_CODE_CONTENT, "Unexpected response");
 }
 
 ZTEST(coap_client, test_request_block)
 {
 	z_impl_zsock_sendto_fake.custom_fake = z_impl_zsock_sendto_custom_fake_block;
 
-	zassert_equal(coap_client_req(&client, 0, &dst_address, &short_request, NULL), -EAGAIN, "");
+	zassert_equal(coap_client_req(&client, 0, net_sad(&dst_address), &short_request, NULL),
+		      -EAGAIN, "");
 }
 
 ZTEST(coap_client, test_resend_request)
 {
-	int (*sendto_fakes[])(int, void *, size_t, int, const struct sockaddr *, socklen_t) = {
+	ssize_t (*sendto_fakes[])(int, void *, size_t, int, const struct net_sockaddr *,
+				  net_socklen_t) = {
 		z_impl_zsock_sendto_custom_fake_no_reply,
 		z_impl_zsock_sendto_custom_fake_block,
 		z_impl_zsock_sendto_custom_fake,
@@ -542,11 +550,11 @@ ZTEST(coap_client, test_resend_request)
 	SET_CUSTOM_FAKE_SEQ(z_impl_zsock_sendto, sendto_fakes, ARRAY_SIZE(sendto_fakes));
 	set_socket_events(client.fd, ZSOCK_POLLOUT);
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &short_request, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &short_request, NULL));
 	k_sleep(K_MSEC(MORE_THAN_ACK_TIMEOUT_MS));
 
 	k_sleep(K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS));
-	zassert_equal(last_response_code, COAP_RESPONSE_CODE_OK, "Unexpected response");
+	zassert_equal(last_response_code, COAP_RESPONSE_CODE_CONTENT, "Unexpected response");
 	zassert_equal(z_impl_zsock_sendto_fake.call_count, 3);
 }
 
@@ -554,10 +562,10 @@ ZTEST(coap_client, test_echo_option)
 {
 	z_impl_zsock_recvfrom_fake.custom_fake = z_impl_zsock_recvfrom_custom_fake_echo;
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &short_request, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &short_request, NULL));
 
 	k_sleep(K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS));
-	zassert_equal(last_response_code, COAP_RESPONSE_CODE_OK, "Unexpected response");
+	zassert_equal(last_response_code, COAP_RESPONSE_CODE_CONTENT, "Unexpected response");
 }
 
 ZTEST(coap_client, test_echo_option_next_req)
@@ -566,10 +574,10 @@ ZTEST(coap_client, test_echo_option_next_req)
 
 	z_impl_zsock_recvfrom_fake.custom_fake = z_impl_zsock_recvfrom_custom_fake_echo_next_req;
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &short_request, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &short_request, NULL));
 
 	k_sleep(K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS));
-	zassert_equal(last_response_code, COAP_RESPONSE_CODE_OK, "Unexpected response");
+	zassert_equal(last_response_code, COAP_RESPONSE_CODE_CONTENT, "Unexpected response");
 
 	char *payload = "echo testing";
 
@@ -578,26 +586,26 @@ ZTEST(coap_client, test_echo_option_next_req)
 	req.len = strlen(payload);
 
 	LOG_INF("Send next request");
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &req, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &req, NULL));
 
 	k_sleep(K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS));
-	zassert_equal(last_response_code, COAP_RESPONSE_CODE_OK, "Unexpected response");
+	zassert_equal(last_response_code, COAP_RESPONSE_CODE_CONTENT, "Unexpected response");
 }
 
 ZTEST(coap_client, test_get_no_path)
 {
 	struct coap_client_request req = short_request;
 
-	req.path = NULL;
-	zassert_equal(coap_client_req(&client, 0, &dst_address, &req, NULL), -EINVAL, "");
+	req.path[0] = '\0';
+	zassert_equal(coap_client_req(&client, 0, net_sad(&dst_address), &req, NULL), -EINVAL, "");
 }
 
 ZTEST(coap_client, test_send_large_data)
 {
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &long_request, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &long_request, NULL));
 
 	k_sleep(K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS));
-	zassert_equal(last_response_code, COAP_RESPONSE_CODE_OK, "Unexpected response");
+	zassert_equal(last_response_code, COAP_RESPONSE_CODE_CONTENT, "Unexpected response");
 }
 
 ZTEST(coap_client, test_no_response)
@@ -611,7 +619,7 @@ ZTEST(coap_client, test_no_response)
 	z_impl_zsock_sendto_fake.custom_fake = z_impl_zsock_sendto_custom_fake_no_reply;
 	set_socket_events(client.fd, ZSOCK_POLLOUT);
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &short_request, &params));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &short_request, &params));
 
 	k_sleep(K_MSEC(MORE_THAN_LONG_EXCHANGE_LIFETIME_MS));
 	zassert_equal(last_response_code, -ETIMEDOUT, "Unexpected response");
@@ -621,10 +629,10 @@ ZTEST(coap_client, test_separate_response)
 {
 	z_impl_zsock_recvfrom_fake.custom_fake = z_impl_zsock_recvfrom_custom_fake_empty_ack;
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &short_request, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &short_request, NULL));
 
 	k_sleep(K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS));
-	zassert_equal(last_response_code, COAP_RESPONSE_CODE_OK, "Unexpected response");
+	zassert_equal(last_response_code, COAP_RESPONSE_CODE_CONTENT, "Unexpected response");
 }
 
 ZTEST(coap_client, test_separate_response_lost)
@@ -636,7 +644,7 @@ ZTEST(coap_client, test_separate_response_lost)
 	z_impl_zsock_recvfrom_fake.custom_fake = z_impl_zsock_recvfrom_custom_fake_only_ack;
 	set_socket_events(client.fd, ZSOCK_POLLOUT);
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &req, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &req, NULL));
 
 	zassert_ok(k_sem_take(&sem1, K_MSEC(COAP_SEPARATE_TIMEOUT)));
 	zassert_equal(last_response_code, -ETIMEDOUT, "");
@@ -648,7 +656,8 @@ ZTEST(coap_client, test_separate_response_ack_fail)
 
 	req.user_data = &sem1;
 
-	int (*sendto_fakes[])(int, void *, size_t, int, const struct sockaddr *, socklen_t) = {
+	ssize_t (*sendto_fakes[])(int, void *, size_t, int, const struct net_sockaddr *,
+				  net_socklen_t) = {
 		z_impl_zsock_sendto_custom_fake,
 		z_impl_zsock_sendto_custom_fake_err,
 	};
@@ -656,7 +665,7 @@ ZTEST(coap_client, test_separate_response_ack_fail)
 	SET_CUSTOM_FAKE_SEQ(z_impl_zsock_sendto, sendto_fakes, ARRAY_SIZE(sendto_fakes));
 	z_impl_zsock_recvfrom_fake.custom_fake = z_impl_zsock_recvfrom_custom_fake_empty_ack;
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &req, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &req, NULL));
 
 	zassert_ok(k_sem_take(&sem1, K_MSEC(COAP_SEPARATE_TIMEOUT)));
 	zassert_equal(last_response_code, -ENETDOWN, "");
@@ -672,17 +681,17 @@ ZTEST(coap_client, test_multiple_requests)
 
 	z_impl_zsock_sendto_fake.custom_fake = z_impl_zsock_sendto_custom_fake_no_reply;
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &req1, NULL));
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &req2, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &req1, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &req2, NULL));
 
 	set_socket_events(client.fd, ZSOCK_POLLIN);
 	zassert_ok(k_sem_take(&sem1, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
-	zassert_equal(last_response_code, COAP_RESPONSE_CODE_OK, "Unexpected response");
+	zassert_equal(last_response_code, COAP_RESPONSE_CODE_CONTENT, "Unexpected response");
 
 	last_response_code = 0;
 	set_socket_events(client.fd, ZSOCK_POLLIN);
 	zassert_ok(k_sem_take(&sem2, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
-	zassert_equal(last_response_code, COAP_RESPONSE_CODE_OK, "Unexpected response");
+	zassert_equal(last_response_code, COAP_RESPONSE_CODE_CONTENT, "Unexpected response");
 }
 
 ZTEST(coap_client, test_unmatching_tokens)
@@ -696,7 +705,7 @@ ZTEST(coap_client, test_unmatching_tokens)
 	z_impl_zsock_recvfrom_fake.custom_fake = z_impl_zsock_recvfrom_custom_fake_unmatching;
 	set_socket_events(client.fd, ZSOCK_POLLIN | ZSOCK_POLLOUT);
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &short_request, &params));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &short_request, &params));
 
 	k_sleep(K_MSEC(MORE_THAN_LONG_EXCHANGE_LIFETIME_MS));
 	zassert_equal(last_response_code, -ETIMEDOUT, "Unexpected response");
@@ -710,13 +719,13 @@ ZTEST(coap_client, test_multiple_clients)
 	req1.user_data = &sem1;
 	req2.user_data = &sem2;
 
-	zassert_ok(coap_client_req(&client, client.fd, &dst_address, &req1, NULL));
-	zassert_ok(coap_client_req(&client2, client2.fd, &dst_address, &req2, NULL));
+	zassert_ok(coap_client_req(&client, client.fd, net_sad(&dst_address), &req1, NULL));
+	zassert_ok(coap_client_req(&client2, client2.fd, net_sad(&dst_address), &req2, NULL));
 
 	/* ensure we got both responses */
 	zassert_ok(k_sem_take(&sem1, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
 	zassert_ok(k_sem_take(&sem2, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
-	zassert_equal(last_response_code, COAP_RESPONSE_CODE_OK, "Unexpected response");
+	zassert_equal(last_response_code, COAP_RESPONSE_CODE_CONTENT, "Unexpected response");
 }
 
 
@@ -725,7 +734,7 @@ ZTEST(coap_client, test_poll_err)
 	z_impl_zsock_sendto_fake.custom_fake = z_impl_zsock_sendto_custom_fake_no_reply;
 	set_socket_events(client.fd, ZSOCK_POLLERR);
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &short_request, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &short_request, NULL));
 
 	k_sleep(K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS));
 	zassert_equal(last_response_code, -EIO, "Unexpected response");
@@ -736,10 +745,10 @@ ZTEST(coap_client, test_poll_err_after_response)
 	z_impl_zsock_sendto_fake.custom_fake = z_impl_zsock_sendto_custom_fake_no_reply;
 	set_socket_events(client.fd, ZSOCK_POLLIN);
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &short_request, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &short_request, NULL));
 
 	zassert_ok(k_sem_take(&sem1, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
-	zassert_equal(last_response_code, COAP_RESPONSE_CODE_OK, "Unexpected response");
+	zassert_equal(last_response_code, COAP_RESPONSE_CODE_CONTENT, "Unexpected response");
 
 	set_socket_events(client.fd, ZSOCK_POLLERR);
 	zassert_not_ok(k_sem_take(&sem1, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
@@ -756,15 +765,15 @@ ZTEST(coap_client, test_poll_err_on_another_sock)
 	z_impl_zsock_sendto_fake.custom_fake = z_impl_zsock_sendto_custom_fake_no_reply;
 	set_socket_events(client.fd, ZSOCK_POLLERR);
 
-	zassert_ok(coap_client_req(&client2, client2.fd, &dst_address, &req2, NULL));
-	zassert_ok(coap_client_req(&client, client.fd, &dst_address, &req1, NULL));
+	zassert_ok(coap_client_req(&client2, client2.fd, net_sad(&dst_address), &req2, NULL));
+	zassert_ok(coap_client_req(&client, client.fd, net_sad(&dst_address), &req1, NULL));
 
 	set_socket_events(client2.fd, ZSOCK_POLLIN);
 
 	zassert_ok(k_sem_take(&sem1, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
 	zassert_equal(last_response_code, -EIO, "");
 	zassert_ok(k_sem_take(&sem2, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
-	zassert_equal(last_response_code, COAP_RESPONSE_CODE_OK, "");
+	zassert_equal(last_response_code, COAP_RESPONSE_CODE_CONTENT, "");
 }
 
 ZTEST(coap_client, test_duplicate_response)
@@ -772,30 +781,29 @@ ZTEST(coap_client, test_duplicate_response)
 	z_impl_zsock_recvfrom_fake.custom_fake =
 		z_impl_zsock_recvfrom_custom_fake_duplicate_response;
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &short_request, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &short_request, NULL));
 
 	zassert_ok(k_sem_take(&sem1, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
-	zassert_equal(last_response_code, COAP_RESPONSE_CODE_OK, "Unexpected response");
+	zassert_equal(last_response_code, COAP_RESPONSE_CODE_CONTENT, "Unexpected response");
 
 	zassert_equal(k_sem_take(&sem1, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)), -EAGAIN, "");
 }
 
 ZTEST(coap_client, test_observe)
 {
-	struct coap_client_option options = {
-		.code = COAP_OPTION_OBSERVE,
-		.value[0] = 0,
-		.len = 1,
-	};
 	struct coap_client_request req = {
 		.method = COAP_METHOD_GET,
 		.confirmable = true,
-		.path = test_path,
+		.path = TEST_PATH,
 		.fmt = COAP_CONTENT_FORMAT_TEXT_PLAIN,
 		.cb = coap_callback,
 		.payload = short_payload,
 		.len = strlen(short_payload),
-		.options = &options,
+		.options = { {
+			.code = COAP_OPTION_OBSERVE,
+			.value[0] = 0,
+			.len = 1,
+		} },
 		.num_options = 1,
 		.user_data = &sem1,
 	};
@@ -803,7 +811,7 @@ ZTEST(coap_client, test_observe)
 	z_impl_zsock_recvfrom_fake.custom_fake = z_impl_zsock_recvfrom_custom_fake_observe;
 
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &req, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &req, NULL));
 
 	zassert_ok(k_sem_take(&sem1, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
 	zassert_ok(k_sem_take(&sem1, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
@@ -820,7 +828,7 @@ ZTEST(coap_client, test_request_rst)
 {
 	z_impl_zsock_recvfrom_fake.custom_fake = z_impl_zsock_recvfrom_custom_fake_rst;
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &short_request, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &short_request, NULL));
 
 	zassert_ok(k_sem_take(&sem1, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
 	zassert_equal(last_response_code, -ECONNRESET, "");
@@ -836,8 +844,8 @@ ZTEST(coap_client, test_cancel)
 
 	z_impl_zsock_sendto_fake.custom_fake = z_impl_zsock_sendto_custom_fake_no_reply;
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &req1, NULL));
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &req2, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &req1, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &req2, NULL));
 
 	k_sleep(K_SECONDS(1));
 
@@ -850,7 +858,7 @@ ZTEST(coap_client, test_cancel)
 	zassert_not_ok(k_sem_take(&sem1, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
 	set_socket_events(client.fd, ZSOCK_POLLIN);
 	zassert_ok(k_sem_take(&sem2, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
-	zassert_equal(last_response_code, COAP_RESPONSE_CODE_OK, "");
+	zassert_equal(last_response_code, COAP_RESPONSE_CODE_CONTENT, "");
 }
 
 ZTEST(coap_client, test_cancel_match)
@@ -860,28 +868,28 @@ ZTEST(coap_client, test_cancel_match)
 
 	req1.user_data = &sem1;
 	req2.user_data = &sem2;
-	req2.path = "another";
+	strcpy(req2.path, "another");
 
 	z_impl_zsock_sendto_fake.custom_fake = z_impl_zsock_sendto_custom_fake_no_reply;
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &req1, NULL));
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &req2, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &req1, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &req2, NULL));
 
 	k_sleep(K_SECONDS(1));
 
 	/* match only one */
 	coap_client_cancel_request(&client, &(struct coap_client_request) {
-		.path = test_path
+		.path = TEST_PATH
 	});
 	zassert_ok(k_sem_take(&sem1, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
 	zassert_not_ok(k_sem_take(&sem2, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
 	zassert_equal(last_response_code, -ECANCELED, "");
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &req1, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &req1, NULL));
 
 	/* should not match */
 	coap_client_cancel_request(&client, &(struct coap_client_request) {
-		.path = test_path,
+		.path = TEST_PATH,
 		.user_data = &sem2,
 	});
 	zassert_not_ok(k_sem_take(&sem1, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
@@ -894,8 +902,8 @@ ZTEST(coap_client, test_cancel_match)
 	zassert_ok(k_sem_take(&sem1, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
 	zassert_ok(k_sem_take(&sem2, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));
 
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &req1, NULL));
-	zassert_ok(coap_client_req(&client, 0, &dst_address, &req2, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &req1, NULL));
+	zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &req2, NULL));
 
 	/* match both (wildcard)*/
 	coap_client_cancel_request(&client, &(struct coap_client_request) {0});
@@ -909,7 +917,7 @@ ZTEST(coap_client, test_non_confirmable)
 	struct coap_client_request req = {
 		.method = COAP_METHOD_GET,
 		.confirmable = false,
-		.path = test_path,
+		.path = TEST_PATH,
 		.fmt = COAP_CONTENT_FORMAT_TEXT_PLAIN,
 		.cb = coap_callback,
 		.payload = short_payload,
@@ -921,16 +929,16 @@ ZTEST(coap_client, test_non_confirmable)
 	set_socket_events(client.fd, ZSOCK_POLLOUT);
 
 	for (int i = 0; i < CONFIG_COAP_CLIENT_MAX_REQUESTS; i++) {
-		zassert_ok(coap_client_req(&client, 0, &dst_address, &req, NULL));
+		zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &req, NULL));
 	}
-	zassert_equal(coap_client_req(&client, 0, &dst_address, &req, NULL), -EAGAIN, "");
+	zassert_equal(coap_client_req(&client, 0, net_sad(&dst_address), &req, NULL), -EAGAIN, "");
 
 	k_sleep(K_MSEC(MORE_THAN_LONG_EXCHANGE_LIFETIME_MS));
 
 	for (int i = 0; i < CONFIG_COAP_CLIENT_MAX_REQUESTS; i++) {
-		zassert_ok(coap_client_req(&client, 0, &dst_address, &req, NULL));
+		zassert_ok(coap_client_req(&client, 0, net_sad(&dst_address), &req, NULL));
 	}
-	zassert_equal(coap_client_req(&client, 0, &dst_address, &req, NULL), -EAGAIN, "");
+	zassert_equal(coap_client_req(&client, 0, net_sad(&dst_address), &req, NULL), -EAGAIN, "");
 
 	/* No callbacks from non-confirmable */
 	zassert_not_ok(k_sem_take(&sem1, K_MSEC(MORE_THAN_EXCHANGE_LIFETIME_MS)));

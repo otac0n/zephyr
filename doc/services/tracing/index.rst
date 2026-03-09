@@ -276,7 +276,7 @@ apply the following configuration options:
     CONFIG_PERCEPIO_TRACERECORDER=y
     CONFIG_PERCEPIO_TRC_START_MODE_START=y
     CONFIG_PERCEPIO_TRC_CFG_STREAM_PORT_ITM=y
-    CONFIG_PERCEPIO_TRC_CFG_ITM_PORT=1
+    CONFIG_PERCEPIO_TRC_CFG_STREAM_PORT_ITM_PORT=1
 
 Or if using menuconfig:
 
@@ -499,8 +499,8 @@ Using Tracing
 The sample :zephyr_file:`samples/subsys/tracing` demonstrates tracing with
 different formats and backends.
 
-To get started, the simplest way is to use the CTF format with the :ref:`native_sim <native_sim>`
-port, build the sample as follows:
+To get started, the simplest way is to use the CTF format with the
+:zephyr:board:`native_sim <native_sim>` port, build the sample as follows:
 
 .. zephyr-app-commands::
    :tool: all

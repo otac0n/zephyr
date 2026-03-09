@@ -166,7 +166,7 @@ if(CONFIG_COMPILER_WARNINGS_AS_ERRORS)
   zephyr_link_libraries($<TARGET_PROPERTY:linker,warnings_as_errors>)
 endif()
 
-if(CONFIG_DEPRECATION_TEST)
+if(CONFIG_DEPRECATION_TEST OR NOT CONFIG_WARN_DEPRECATED)
   zephyr_compile_options($<$<COMPILE_LANGUAGE:C>:$<TARGET_PROPERTY:compiler,no_deprecation_warning>>)
   zephyr_compile_options($<$<COMPILE_LANGUAGE:CXX>:$<TARGET_PROPERTY:compiler,no_deprecation_warning>>)
   zephyr_compile_options($<$<COMPILE_LANGUAGE:ASM>:$<TARGET_PROPERTY:asm,no_deprecation_warning>>)
@@ -232,42 +232,6 @@ get_property(LINKER_OPTIMIZE_FOR_SPEED_FLAG TARGET linker PROPERTY optimization_
 get_property(LINKER_OPTIMIZE_FOR_SIZE_FLAG  TARGET linker PROPERTY optimization_size)
 get_property(LINKER_OPTIMIZE_FOR_SIZE_AGGRESSIVE_FLAG TARGET linker PROPERTY optimization_size_aggressive)
 
-# Let the assembler inherit the optimization flags of the compiler if it is
-# not set explicitly.
-if(NOT ASM_OPTIMIZE_FOR_NO_OPTIMIZATIONS_FLAG)
-  set(ASM_OPTIMIZE_FOR_NO_OPTIMIZATIONS_FLAG ${COMPILER_OPTIMIZE_FOR_NO_OPTIMIZATIONS_FLAG})
-endif()
-if(NOT ASM_OPTIMIZE_FOR_DEBUG_FLAG)
-  set(ASM_OPTIMIZE_FOR_DEBUG_FLAG ${COMPILER_OPTIMIZE_FOR_DEBUG_FLAG})
-endif()
-if(NOT ASM_OPTIMIZE_FOR_SPEED_FLAG)
-  set(ASM_OPTIMIZE_FOR_SPEED_FLAG ${COMPILER_OPTIMIZE_FOR_SPEED_FLAG})
-endif()
-if(NOT ASM_OPTIMIZE_FOR_SIZE_FLAG)
-  set(ASM_OPTIMIZE_FOR_SIZE_FLAG ${COMPILER_OPTIMIZE_FOR_SIZE_FLAG})
-endif()
-if(NOT ASM_OPTIMIZE_FOR_SIZE_AGGRESSIVE_FLAG)
-  set(ASM_OPTIMIZE_FOR_SIZE_AGGRESSIVE_FLAG ${COMPILER_OPTIMIZE_FOR_SIZE_AGGRESSIVE_FLAG})
-endif()
-
-# Let the linker inherit the optimization flags of the compiler if it is
-# not set explicitly.
-if(NOT LINKER_OPTIMIZE_FOR_NO_OPTIMIZATIONS_FLAG)
-  set(LINKER_OPTIMIZE_FOR_NO_OPTIMIZATIONS_FLAG ${COMPILER_OPTIMIZE_FOR_NO_OPTIMIZATIONS_FLAG})
-endif()
-if(NOT LINKER_OPTIMIZE_FOR_DEBUG_FLAG)
-  set(LINKER_OPTIMIZE_FOR_DEBUG_FLAG ${COMPILER_OPTIMIZE_FOR_DEBUG_FLAG})
-endif()
-if(NOT LINKER_OPTIMIZE_FOR_SPEED_FLAG)
-  set(LINKER_OPTIMIZE_FOR_SPEED_FLAG ${COMPILER_OPTIMIZE_FOR_SPEED_FLAG})
-endif()
-if(NOT LINKER_OPTIMIZE_FOR_SIZE_FLAG)
-  set(LINKER_OPTIMIZE_FOR_SIZE_FLAG ${COMPILER_OPTIMIZE_FOR_SIZE_FLAG})
-endif()
-if(NOT LINKER_OPTIMIZE_FOR_SIZE_AGGRESSIVE_FLAG)
-  set(LINKER_OPTIMIZE_FOR_SIZE_AGGRESSIVE_FLAG ${COMPILER_OPTIMIZE_FOR_SIZE_AGGRESSIVE_FLAG})
-endif()
-
 # From kconfig choice, pick the actual OPTIMIZATION_FLAG to use.
 # Kconfig choice ensures only one of these CONFIG_*_OPTIMIZATIONS is set.
 if(CONFIG_NO_OPTIMIZATIONS)
@@ -311,8 +275,15 @@ compiler_simple_options(simple_options)
 toolchain_linker_add_compiler_options(${simple_options})
 
 if(CONFIG_LTO)
-  zephyr_compile_options($<TARGET_PROPERTY:compiler,optimization_lto>)
-  add_link_options($<TARGET_PROPERTY:linker,lto_arguments>)
+  if(CONFIG_LTO_SINGLE_THREADED)
+    zephyr_compile_options($<TARGET_PROPERTY:compiler,optimization_lto_st>)
+    add_link_options($<TARGET_PROPERTY:linker,lto_arguments_st>)
+  else()
+    set(genex_tgt_lto "$<TARGET_PROPERTY:LTO>")
+    set(genex_lto "$<TARGET_PROPERTY:compiler,optimization_lto>")
+    zephyr_compile_options("$<$<OR:$<STREQUAL:${genex_tgt_lto},>,${genex_tgt_lto}>:${genex_lto}>")
+    add_link_options($<TARGET_PROPERTY:linker,lto_arguments>)
+  endif()
 endif()
 
 if(CONFIG_STD_C23)
@@ -409,7 +380,7 @@ if(CONFIG_COMPILER_FREESTANDING)
   zephyr_compile_options($<$<COMPILE_LANGUAGE:ASM>:$<TARGET_PROPERTY:compiler,freestanding>>)
 endif()
 
-if (CONFIG_PICOLIBC AND NOT CONFIG_PICOLIBC_IO_FLOAT)
+if(CONFIG_PICOLIBC AND NOT CONFIG_PICOLIBC_IO_FLOAT)
   # @Intent: Set compiler specific flag to disable printf-related optimizations
   zephyr_compile_options($<$<COMPILE_LANGUAGE:C>:$<TARGET_PROPERTY:compiler,no_printf_return_value>>)
 endif()
@@ -468,11 +439,19 @@ zephyr_compile_options(
   $<$<COMPILE_LANGUAGE:ASM>:-D_ASMLANGUAGE>
 )
 
-find_package(Deprecated COMPONENTS toolchain_ld_base)
-
 if(DEFINED TOOLCHAIN_LD_FLAGS)
   zephyr_ld_options(${TOOLCHAIN_LD_FLAGS})
 endif()
+
+foreach(GROUPED_FLAGS IN LISTS TOOLCHAIN_GROUPED_LD_FLAGS)
+  if(DEFINED ${GROUPED_FLAGS})
+    zephyr_ld_options(NO_SPLIT ${${GROUPED_FLAGS}})
+  else()
+    message(FATAL_ERROR "Variable '${GROUPED_FLAGS}' is not defined, "
+      "please ensure the variable is defined and points to valid linker flags. "
+      "If '${GROUPED_FLAGS}' is a linker flags itself, then it must be placed in a list")
+  endif()
+endforeach()
 
 zephyr_link_libraries(PROPERTY base)
 
@@ -490,8 +469,6 @@ toolchain_ld_force_undefined_symbols(
 )
 
 if(NOT CONFIG_NATIVE_BUILD)
-  find_package(Deprecated COMPONENTS toolchain_ld_baremetal)
-
   zephyr_link_libraries(PROPERTY baremetal)
 
   # Note that some architectures will skip this flag if set to error, even
@@ -516,10 +493,6 @@ if(NOT CONFIG_NATIVE_BUILD)
 endif()
 
 if(CONFIG_CPP)
-  if(NOT CONFIG_MINIMAL_LIBCPP AND NOT CONFIG_NATIVE_LIBRARY)
-    find_package(Deprecated COMPONENTS toolchain_ld_cpp)
-  endif()
-
   zephyr_link_libraries(PROPERTY cpp_base)
 endif()
 
@@ -567,6 +540,32 @@ zephyr_compile_options($<$<COMPILE_LANGUAGE:CXX>:$<TARGET_PROPERTY:compiler,no_p
 # relocatable link into a static library
 zephyr_link_libraries_ifndef(CONFIG_NATIVE_LIBRARY
                              $<TARGET_PROPERTY:linker,no_position_independent>)
+
+if(CONFIG_INSTRUMENTATION)
+  # @Intent: Enable function instrumentation injection at compile time
+  zephyr_compile_options($<$<COMPILE_LANGUAGE:C>:$<TARGET_PROPERTY:compiler,func_instrumentation>>)
+  zephyr_compile_options($<$<COMPILE_LANGUAGE:CXX>:$<TARGET_PROPERTY:compiler,func_instrumentation>>)
+
+  # @Intent: Enable function blocklist for the instrumentation subsystem
+  if(CONFIG_INSTRUMENTATION_EXCLUDE_FUNCTION_LIST)
+    zephyr_compile_options($<$<COMPILE_LANGUAGE:C>:$<TARGET_PROPERTY:compiler,func_instrumentation_exclude_function_list>>)
+    zephyr_compile_options($<$<COMPILE_LANGUAGE:CXX>:$<TARGET_PROPERTY:compiler,func_instrumentation_exclude_function_list>>)
+  endif()
+
+  # @Intent: Enable file blocklist for the instrumentation subsystem
+  if(CONFIG_INSTRUMENTATION_EXCLUDE_FILE_LIST)
+    zephyr_compile_options($<$<COMPILE_LANGUAGE:C>:$<TARGET_PROPERTY:compiler,func_instrumentation_exclude_file_list>>)
+    zephyr_compile_options($<$<COMPILE_LANGUAGE:CXX>:$<TARGET_PROPERTY:compiler,func_instrumentation_exclude_file_list>>)
+  endif()
+endif()
+
+if(CONFIG_COMPILER_CODEGEN_VLIW_ENABLED)
+  zephyr_compile_options($<$<COMPILE_LANGUAGE:C>:$<TARGET_PROPERTY:compiler,generate_vliw>>)
+  zephyr_compile_options($<$<COMPILE_LANGUAGE:CXX>:$<TARGET_PROPERTY:compiler,generate_vliw>>)
+elseif(CONFIG_COMPILER_CODEGEN_VLIW_DISABLED)
+  zephyr_compile_options($<$<COMPILE_LANGUAGE:C>:$<TARGET_PROPERTY:compiler,no_generate_vliw>>)
+  zephyr_compile_options($<$<COMPILE_LANGUAGE:CXX>:$<TARGET_PROPERTY:compiler,no_generate_vliw>>)
+endif()
 
 # Allow the user to inject options when calling cmake, e.g.
 # 'cmake -DEXTRA_CFLAGS="-Werror -Wno-deprecated-declarations" ..'
@@ -709,6 +708,10 @@ zephyr_get(KERNEL_VERSION_CUSTOMIZATION SYSBUILD LOCAL)
 set_property(TARGET version_h PROPERTY KERNEL_VERSION_CUSTOMIZATION ${KERNEL_VERSION_CUSTOMIZATION})
 
 if(EXISTS ${APPLICATION_SOURCE_DIR}/VERSION)
+  # A generator expression is used to allow applications to add their own dependencies for the
+  # file version, this might typically be the git index file if the application is in a git
+  # repository. To add a dependency to the application version file, this can be used:
+  # set_property(TARGET app_version_h PROPERTY APP_VERSION_DEPENDS <FILE>)
   add_custom_command(
     OUTPUT ${PROJECT_BINARY_DIR}/include/generated/zephyr/app_version.h
     COMMAND ${CMAKE_COMMAND} -DZEPHYR_BASE=${ZEPHYR_BASE}
@@ -719,6 +722,7 @@ if(EXISTS ${APPLICATION_SOURCE_DIR}/VERSION)
       ${build_version_argument}
       -P ${ZEPHYR_BASE}/cmake/gen_version_h.cmake
     DEPENDS ${APPLICATION_SOURCE_DIR}/VERSION ${git_dependency}
+      $<TARGET_PROPERTY:app_version_h,APP_VERSION_DEPENDS>
     COMMAND_EXPAND_LISTS
   )
   add_custom_target(
@@ -788,12 +792,12 @@ set(struct_tags_json ${CMAKE_CURRENT_BINARY_DIR}/misc/generated/struct_tags.json
 # The syscalls subdirs txt file is constructed by python containing a list of folders to use for
 # dependency handling, including empty folders.
 # Windows:  The list is used to specify DIRECTORY list with CMAKE_CONFIGURE_DEPENDS attribute.
-# Other OS: The list will update whenever a file is added/removed/modified and ensure a re-build.
+# Other OS: The list file is updated whenever a directory is added or removed.
 set(syscalls_subdirs_txt ${CMAKE_CURRENT_BINARY_DIR}/misc/generated/syscalls_subdirs.txt)
 
-# As syscalls_subdirs_txt is updated whenever a file is modified, this file can not be used for
-# monitoring of added / removed folders. A trigger file is thus used for correct dependency
-# handling. The trigger file will update when a folder is added / removed.
+# As syscalls_subdirs_txt is updated only on directory add or remove, this file can not be used for
+# monitoring of syscall changes. A trigger file is thus used for correct dependency handling. The
+# trigger file will update when syscalls change.
 set(syscalls_subdirs_trigger ${CMAKE_CURRENT_BINARY_DIR}/misc/generated/syscalls_subdirs.trigger)
 
 if(NOT (${CMAKE_HOST_SYSTEM_NAME} STREQUAL Windows))
@@ -812,14 +816,13 @@ execute_process(
 )
 file(STRINGS ${syscalls_subdirs_txt} PARSE_SYSCALLS_PATHS_DEPENDS ENCODING UTF-8)
 
+# Each header file must be monitored as file modifications are not reflected on directory level.
+file(GLOB_RECURSE PARSE_SYSCALLS_HEADER_DEPENDS ${ZEPHYR_BASE}/include/*.h)
+
 if(${CMAKE_HOST_SYSTEM_NAME} STREQUAL Windows)
   # On windows only adding/removing files or folders will be reflected in depends.
   # Hence adding a file requires CMake to re-run to add this file to the file list.
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${PARSE_SYSCALLS_PATHS_DEPENDS})
-
-  # Also On Windows each header file must be monitored as file modifications are not reflected
-  # on directory level.
-  file(GLOB_RECURSE PARSE_SYSCALLS_HEADER_DEPENDS ${ZEPHYR_BASE}/include/*.h)
 else()
   # The syscall parsing depends on the folders in order to detect add/removed/modified files.
   # When a folder is removed, CMake will try to find a target that creates that dependency.
@@ -850,10 +853,10 @@ else()
     file(WRITE ${syscalls_subdirs_txt} "")
   endif()
 
-  # On other OS'es, modifying a file is reflected on the folder timestamp and hence detected
+  # On other OS'es, using git checkout is reflected on the folder timestamp and hence detected
   # when using depend on directory level.
   # Thus CMake only needs to re-run when sub-directories are added / removed, which is indicated
-  # using a trigger file.
+  # by syscalls_subdirs_txt being updated.
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${syscalls_subdirs_txt})
 endif()
 
@@ -1129,7 +1132,7 @@ endif()
 
 get_property(OUTPUT_FORMAT        GLOBAL PROPERTY PROPERTY_OUTPUT_FORMAT)
 
-if (CONFIG_CODE_DATA_RELOCATION)
+if(CONFIG_CODE_DATA_RELOCATION)
   set(CODE_RELOCATION_DEP code_relocation_source_lib)
 endif() # CONFIG_CODE_DATA_RELOCATION
 
@@ -1476,6 +1479,8 @@ if(CONFIG_USERSPACE OR CONFIG_DEVICE_DEPS)
   )
   target_link_libraries_ifdef(CONFIG_NATIVE_LIBRARY ${ZEPHYR_LINK_STAGE_EXECUTABLE}
                               $<TARGET_PROPERTY:linker,no_position_independent>)
+  target_link_libraries_ifdef(CONFIG_LLEXT_EXPORT_BUILTINS_BY_SLID ${ZEPHYR_LINK_STAGE_EXECUTABLE}
+                              $<TARGET_PROPERTY:linker,no_check_sections>)
   target_byproducts(TARGET ${ZEPHYR_LINK_STAGE_EXECUTABLE}
                     BYPRODUCTS ${PROJECT_BINARY_DIR}/${ZEPHYR_LINK_STAGE_EXECUTABLE}.map
   )
@@ -1693,6 +1698,8 @@ toolchain_ld_link_elf(
 )
 target_link_libraries_ifdef(CONFIG_NATIVE_LIBRARY ${ZEPHYR_LINK_STAGE_EXECUTABLE}
                             $<TARGET_PROPERTY:linker,partial_linking>)
+target_link_libraries_ifdef(CONFIG_LLEXT_EXPORT_BUILTINS_BY_SLID ${ZEPHYR_LINK_STAGE_EXECUTABLE}
+                            $<TARGET_PROPERTY:linker,no_check_sections>)
 target_byproducts(TARGET ${ZEPHYR_LINK_STAGE_EXECUTABLE}
                   BYPRODUCTS ${PROJECT_BINARY_DIR}/${ZEPHYR_LINK_STAGE_EXECUTABLE}.map
 )
@@ -1744,6 +1751,8 @@ else()
     LIBRARIES_POST_SCRIPT ""
     DEPENDENCIES          ${CODE_RELOCATION_DEP}
   )
+  target_link_libraries_ifdef(CONFIG_LLEXT_EXPORT_BUILTINS_BY_SLID ${ZEPHYR_FINAL_EXECUTABLE}
+                            $<TARGET_PROPERTY:linker,no_check_sections>)
   set_property(TARGET   ${ZEPHYR_FINAL_EXECUTABLE} PROPERTY LINK_DEPENDS ${PROJECT_BINARY_DIR}/linker.cmd)
   add_dependencies(     ${ZEPHYR_FINAL_EXECUTABLE} linker_zephyr_final_script_target)
 
@@ -1872,18 +1881,31 @@ endif()
 
 if(CONFIG_BUILD_OUTPUT_BIN AND CONFIG_BUILD_OUTPUT_UF2)
   if(CONFIG_BUILD_OUTPUT_UF2_USE_FLASH_BASE)
-    set(flash_addr "${CONFIG_FLASH_BASE_ADDRESS}")
+    set(code_address "${CONFIG_FLASH_BASE_ADDRESS}")
   else()
-    set(flash_addr "${CONFIG_FLASH_LOAD_OFFSET}")
+    set(code_address "${CONFIG_FLASH_LOAD_OFFSET}")
   endif()
 
   if(CONFIG_BUILD_OUTPUT_UF2_USE_FLASH_OFFSET)
     # Note, the `+ 0` in formula below avoids errors in cases where a Kconfig
     #       variable is undefined and thus expands to nothing.
-    math(EXPR flash_addr
-        "${flash_addr} + ${CONFIG_FLASH_LOAD_OFFSET} + 0"
+    math(EXPR code_address
+        "${code_address} + ${CONFIG_FLASH_LOAD_OFFSET} + 0"
          OUTPUT_FORMAT HEXADECIMAL
     )
+  endif()
+
+  # No-XIP images (such as ones for RP2350 with CONFIG_XIP=n)
+  # are typically loaded to RAM
+  if(NOT CONFIG_XIP)
+    if(CONFIG_BUILD_OUTPUT_ADJUST_LMA)
+      math(EXPR code_address
+          "${CONFIG_SRAM_BASE_ADDRESS} + ${CONFIG_BUILD_OUTPUT_ADJUST_LMA} + 0"
+          OUTPUT_FORMAT HEXADECIMAL
+      )
+    else()
+      set(code_address "${CONFIG_SRAM_BASE_ADDRESS}")
+    endif()
   endif()
 
   list(APPEND
@@ -1891,7 +1913,7 @@ if(CONFIG_BUILD_OUTPUT_BIN AND CONFIG_BUILD_OUTPUT_UF2)
     COMMAND ${PYTHON_EXECUTABLE} ${ZEPHYR_BASE}/scripts/build/uf2conv.py
             -c
             -f ${CONFIG_BUILD_OUTPUT_UF2_FAMILY_ID}
-            -b ${flash_addr}
+            -b ${code_address}
             -o ${KERNEL_UF2_NAME}
             ${KERNEL_BIN_NAME}
   )
@@ -2093,17 +2115,29 @@ if(CONFIG_BUILD_OUTPUT_INFO_HEADER)
     )
 endif()
 
-if (CONFIG_LLEXT AND CONFIG_LLEXT_EXPORT_BUILTINS_BY_SLID)
-  #slidgen must be the first post-build command to be executed
-  #on the Zephyr ELF to ensure that all other commands, such as
-  #binary file generation, are operating on a preparated ELF.
-  list(PREPEND
+if(CONFIG_LLEXT)
+  # Add discarded groups inspector to post-build commands
+  list(APPEND
     post_build_commands
     COMMAND ${PYTHON_EXECUTABLE}
-    ${ZEPHYR_BASE}/scripts/build/llext_prepare_exptab.py
+    ${ZEPHYR_BASE}/scripts/build/llext_inspect_discarded_groups.py
     --elf-file ${PROJECT_BINARY_DIR}/${KERNEL_ELF_NAME}
-    --slid-listing ${PROJECT_BINARY_DIR}/slid_listing.txt
+    --dotconfig-file ${DOTCONFIG}
+    --output-report ${PROJECT_BINARY_DIR}/llext_discarded_groups.txt
   )
+
+  if(CONFIG_LLEXT_EXPORT_BUILTINS_BY_SLID)
+    #slidgen must be the first post-build command to be executed
+    #on the Zephyr ELF to ensure that all other commands, such as
+    #binary file generation, are operating on a preparated ELF.
+    list(PREPEND
+      post_build_commands
+      COMMAND ${PYTHON_EXECUTABLE}
+      ${ZEPHYR_BASE}/scripts/build/llext_prepare_exptab.py
+      --elf-file ${PROJECT_BINARY_DIR}/${KERNEL_ELF_NAME}
+      --slid-listing ${PROJECT_BINARY_DIR}/slid_listing.txt
+    )
+  endif()
 endif()
 
 if(NOT CMAKE_C_COMPILER_ID STREQUAL "ARMClang")
@@ -2159,9 +2193,19 @@ if(signing_script)
 endif()
 
 # Generate USB-C VIF policies in XML format
-if (CONFIG_BUILD_OUTPUT_VIF)
+if(CONFIG_BUILD_OUTPUT_VIF)
   include(${CMAKE_CURRENT_LIST_DIR}/cmake/vif.cmake)
 endif()
+
+get_property(post_build_patch_elf_commands
+  GLOBAL PROPERTY
+  post_build_patch_elf_commands
+  )
+
+list(PREPEND
+  post_build_commands
+  ${post_build_patch_elf_commands}
+  )
 
 get_property(extra_post_build_commands
   GLOBAL PROPERTY
@@ -2200,7 +2244,7 @@ if(LOG_DICT_DB_NAME_ARG)
       --build-header ${PROJECT_BINARY_DIR}/include/generated/zephyr/version.h
   )
 
-  if (NOT CONFIG_LOG_DICTIONARY_DB_TARGET)
+  if(NOT CONFIG_LOG_DICTIONARY_DB_TARGET)
     # If not using a separate target for generating logging dictionary
     # database, add the generation to post build command to make sure
     # the database is actually being generated.
@@ -2233,7 +2277,7 @@ endif()
 add_custom_command(
   TARGET ${logical_target_for_zephyr_elf}
   POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E echo "Generating files from ${PROJECT_BINARY_DIR}/${KERNEL_ELF_NAME} for board: ${BOARD}"
+  COMMAND ${CMAKE_COMMAND} -E echo "Generating files from ${PROJECT_BINARY_DIR}/${KERNEL_ELF_NAME} for board: ${BOARD}/${BOARD_QUALIFIERS}"
   ${post_build_commands}
   BYPRODUCTS
   ${post_build_byproducts}

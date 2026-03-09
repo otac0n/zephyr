@@ -9,6 +9,7 @@ toolchain:
 supported:
   - gpio
   - serial
+  - hwinfo
   - trng
   - i2c
   - dma
@@ -21,4 +22,4 @@ supported:
   - w1
   - flash
 ram: 48
-flash: 512
+flash: 352

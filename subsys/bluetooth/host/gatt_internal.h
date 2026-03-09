@@ -14,9 +14,6 @@
 #include <zephyr/bluetooth/addr.h>
 #include <zephyr/bluetooth/conn.h>
 
-#define BT_GATT_CENTRAL_ADDR_RES_NOT_SUPP	0
-#define BT_GATT_CENTRAL_ADDR_RES_SUPP		1
-
 #define BT_GATT_PERM_READ_MASK			(BT_GATT_PERM_READ | \
 						BT_GATT_PERM_READ_ENCRYPT | \
 						BT_GATT_PERM_READ_AUTHEN | \
@@ -68,3 +65,6 @@ struct bt_gatt_attr;
 /* Check attribute permission */
 uint8_t bt_gatt_check_perm(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 			uint16_t mask);
+
+bool bt_gatt_attr_read_authorize(struct bt_conn *conn, const struct bt_gatt_attr *attr);
+bool bt_gatt_attr_write_authorize(struct bt_conn *conn, const struct bt_gatt_attr *attr);

@@ -51,6 +51,11 @@ enum {
 	BT_BIG_PENDING,
 	/* Creating a BIG as a receiver */
 	BT_BIG_SYNCING,
+	/* BIG is busy handling an HCI event.
+	 *
+	 * Use this to prevent API calls from modifying the BIG while the event is being processed.
+	 */
+	BT_BIG_BUSY,
 
 	BT_BIG_NUM_FLAGS,
 };
@@ -110,9 +115,6 @@ void bt_iso_connected(struct bt_conn *iso);
 
 /* Notify ISO channels of a disconnect event */
 void bt_iso_disconnected(struct bt_conn *iso);
-
-/* Notify ISO connected channels of security changed */
-void bt_iso_security_changed(struct bt_conn *acl, uint8_t hci_status);
 
 #if defined(CONFIG_BT_ISO_LOG_LEVEL_DBG)
 void bt_iso_chan_set_state_debug(struct bt_iso_chan *chan,
